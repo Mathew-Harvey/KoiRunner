@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Koi Runner</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Permanent+Marker&display=swap');
@@ -60,12 +60,43 @@ canvas{display:block}
 #loading.done{opacity:0;pointer-events:none}
 #load-bar-outer{width:200px;height:8px;background:rgba(255,255,255,.1);border-radius:4px;margin-top:16px;overflow:hidden}
 #load-bar{height:100%;width:0;background:linear-gradient(90deg,#FFD700,#FF8C00);border-radius:4px;transition:width .2s}
+/* ═══ MOBILE CONTROLS ═══ */
+#mobile-controls{display:none;position:fixed;bottom:0;left:0;right:0;height:45vh;z-index:120;pointer-events:none}
+.mobile-active #mobile-controls{display:block}
+.mobile-active #cursor{display:none}
+#joystick-zone{position:absolute;left:12px;bottom:12px;width:44vw;height:44vw;max-width:180px;max-height:180px;pointer-events:all;touch-action:none}
+#joystick-base{position:absolute;inset:0;border-radius:50%;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.12);backdrop-filter:blur(2px)}
+#joystick-knob{position:absolute;width:40%;height:40%;left:30%;top:30%;border-radius:50%;background:radial-gradient(circle at 40% 35%,rgba(255,215,0,.35),rgba(255,140,0,.18));border:2px solid rgba(255,215,0,.3);transition:transform .05s;pointer-events:none}
+#mobile-btns{position:absolute;right:12px;bottom:12px;display:flex;gap:10px;pointer-events:all;touch-action:none}
+.mob-btn{width:70px;height:70px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Permanent Marker',cursive;font-size:14px;letter-spacing:1px;border:2px solid;user-select:none;-webkit-user-select:none;backdrop-filter:blur(2px)}
+.mob-btn-jump{background:rgba(100,200,255,.1);border-color:rgba(100,200,255,.3);color:rgba(100,200,255,.8);box-shadow:0 0 15px rgba(100,200,255,.1)}
+.mob-btn-jump.active{background:rgba(100,200,255,.25);box-shadow:0 0 25px rgba(100,200,255,.3);transform:scale(.92)}
+.mob-btn-sprint{background:rgba(255,150,50,.1);border-color:rgba(255,150,50,.3);color:rgba(255,150,50,.8);box-shadow:0 0 15px rgba(255,150,50,.1)}
+.mob-btn-sprint.active{background:rgba(255,150,50,.25);box-shadow:0 0 25px rgba(255,150,50,.3);transform:scale(.92)}
+@media(max-width:768px),(pointer:coarse){
+  .controls-info .desktop-only{display:none}
+  .controls-info .mobile-only{display:inline}
+  .score-display{font-size:24px}
+  .multiplier-display{font-size:20px}
+  .menu-title{font-size:clamp(36px,9vw,60px)}
+  .menu-koi-img{width:180px}
+  .start-btn{font-size:22px;padding:10px 36px}
+}
+.controls-info .mobile-only{display:none}
+@media(pointer:coarse){.controls-info .mobile-only{display:inline}.controls-info .desktop-only{display:none}}
 </style>
 </head>
 <body>
 <div id="loading"><div>Loading...</div><div id="load-bar-outer"><div id="load-bar"></div></div></div>
 <div id="cursor"></div>
 <div id="water-vignette"></div>
+<div id="mobile-controls">
+  <div id="joystick-zone"><div id="joystick-base"></div><div id="joystick-knob"></div></div>
+  <div id="mobile-btns">
+    <div class="mob-btn mob-btn-sprint" id="btn-sprint">FAST</div>
+    <div class="mob-btn mob-btn-jump" id="btn-jump">JUMP</div>
+  </div>
+</div>
 <div id="flash-overlay"></div>
 <div id="hud">
   <div class="hud-left">
@@ -87,7 +118,8 @@ canvas{display:block}
   <img class="menu-koi-img" id="menu-koi-img" alt="Koi Fish">
   <button class="start-btn" id="start-btn">DIVE IN</button>
   <div class="controls-info">
-    <span>WASD</span> swim &nbsp;|&nbsp; <span>MOUSE</span> look &nbsp;|&nbsp; <span>SHIFT</span> sprint &nbsp;|&nbsp; <span>SPACE</span> jump<br>
+    <span class="desktop-only"><span>WASD</span> swim &nbsp;|&nbsp; <span>MOUSE</span> look &nbsp;|&nbsp; <span>SHIFT</span> sprint &nbsp;|&nbsp; <span>SPACE</span> jump<br></span>
+    <span class="mobile-only"><span>LEFT STICK</span> swim &nbsp;|&nbsp; <span>FAST</span> sprint &nbsp;|&nbsp; <span>JUMP</span> leap<br></span>
     Collect stars &#x2B50; &nbsp;|&nbsp; Dodge <span style="color:#ff4444">red dangers</span> &nbsp;|&nbsp; Survive!
   </div>
 </div>
@@ -859,15 +891,23 @@ function spawn(dt){
 // ═══════ PLAYER ═══════
 function updatePlayer(dt){
   const ms=8.5;
-  const li=(keys['d']||keys['arrowright']?1:0)-(keys['a']||keys['arrowleft']?1:0);
+  // Keyboard lateral input
+  let li=(keys['d']||keys['arrowright']?1:0)-(keys['a']||keys['arrowleft']?1:0);
+  // Touch joystick lateral input (additive)
+  if(touchJoy.active)li+=touchJoy.x;
+  li=Math.max(-1,Math.min(1,li));
   pvx+=(li*ms-pvx)*dt*6;
-  const fi=(keys['w']||keys['arrowup']?1:0)-(keys['s']||keys['arrowdown']?1:0);
-  isSprinting=keys['shift']||keys['shiftleft'];
+  // Keyboard forward/back
+  let fi=(keys['w']||keys['arrowup']?1:0)-(keys['s']||keys['arrowdown']?1:0);
+  // Touch joystick forward/back
+  if(touchJoy.active)fi+=touchJoy.y;
+  fi=Math.max(-1,Math.min(1,fi));
+  isSprinting=keys['shift']||keys['shiftleft']||touchSprint;
   const ts=baseSpeed+fi*4+(isSprinting?7:0);
   currentSpeed+=(ts-currentSpeed)*dt*3;
   currentSpeed=Math.max(4,Math.min(maxSpeed,currentSpeed));
-  pvx+=mouseX*3.5*dt;
-  if((keys[' ']||keys['space'])&&!isJumping){isJumping=true;jumpVel=6.5;snd('jump')}
+  if(!isMobile)pvx+=mouseX*3.5*dt;
+  if((keys[' ']||keys['space']||touchJump)&&!isJumping){isJumping=true;jumpVel=6.5;snd('jump');touchJump=false}
   if(isJumping){jumpVel-=15*dt;py+=jumpVel*dt;if(py<=-.3){py=-.3;isJumping=false;jumpVel=0;spawnBubble(new THREE.Vector3(px,.05,pz),6);snd('splash')}}
   px+=pvx*dt;pz-=currentSpeed*dt;
   const bd=river.width/2-1.8;
@@ -883,11 +923,13 @@ function updatePlayer(dt){
 
 // ═══════ CAMERA ═══════
 function updateCam(dt,t){
-  const tx=px*.5+mouseX*2.2,ty=py+5+mouseY*-1,tz=pz+8.5;
+  const lookX=isMobile?(touchJoy.active?touchJoy.x*.8:0):mouseX;
+  const lookY=isMobile?0:mouseY;
+  const tx=px*.5+lookX*2.2,ty=py+5+lookY*-1,tz=pz+8.5;
   camera.position.x+=(tx-camera.position.x)*dt*3.5;
   camera.position.y+=(ty-camera.position.y)*dt*2.8;
   camera.position.z+=(tz-camera.position.z)*dt*5;
-  camera.lookAt(px*.25+mouseX*1.8,py-.5,pz-22);
+  camera.lookAt(px*.25+lookX*1.8,py-.5,pz-22);
   if(shake>0){camera.position.x+=(Math.random()-.5)*shake*.6;camera.position.y+=(Math.random()-.5)*shake*.3}
   camera.fov+=(60+(currentSpeed-baseSpeed)*1-camera.fov)*dt*2;
   camera.updateProjectionMatrix();
@@ -1048,6 +1090,74 @@ function gameOver(){
 // ═══════ INPUT ═══════
 document.addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if(e.key===' ')e.preventDefault();if(!audioCtx)initAudio()});
 document.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
+
+// ═══════ MOBILE TOUCH CONTROLS ═══════
+let isMobile=false;
+let touchJoy={x:0,y:0,active:false,id:null};
+let touchSprint=false,touchJump=false;
+const jZone=document.getElementById('joystick-zone');
+const jKnob=document.getElementById('joystick-knob');
+const btnJump=document.getElementById('btn-jump');
+const btnSprint=document.getElementById('btn-sprint');
+
+function detectMobile(){
+  isMobile='ontouchstart'in window||navigator.maxTouchPoints>0||window.matchMedia('(pointer:coarse)').matches;
+  if(isMobile)document.body.classList.add('mobile-active');
+}
+detectMobile();
+
+// Joystick touch handling
+function getJoyCenter(){
+  const r=jZone.getBoundingClientRect();
+  return{x:r.left+r.width/2,y:r.top+r.height/2,radius:r.width/2};
+}
+jZone.addEventListener('touchstart',e=>{
+  e.preventDefault();if(!audioCtx)initAudio();
+  const t=e.changedTouches[0];
+  touchJoy.id=t.identifier;touchJoy.active=true;
+  updateJoy(t);
+},{passive:false});
+jZone.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  for(let i=0;i<e.changedTouches.length;i++){
+    if(e.changedTouches[i].identifier===touchJoy.id)updateJoy(e.changedTouches[i]);
+  }
+},{passive:false});
+jZone.addEventListener('touchend',e=>{
+  for(let i=0;i<e.changedTouches.length;i++){
+    if(e.changedTouches[i].identifier===touchJoy.id){
+      touchJoy.active=false;touchJoy.x=0;touchJoy.y=0;touchJoy.id=null;
+      jKnob.style.transform='translate(0,0)';
+    }
+  }
+});
+jZone.addEventListener('touchcancel',e=>{
+  touchJoy.active=false;touchJoy.x=0;touchJoy.y=0;touchJoy.id=null;
+  jKnob.style.transform='translate(0,0)';
+});
+function updateJoy(t){
+  const c=getJoyCenter();
+  let dx=t.clientX-c.x,dy=t.clientY-c.y;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  const maxR=c.radius*.75;
+  if(dist>maxR){dx=dx/dist*maxR;dy=dy/dist*maxR}
+  touchJoy.x=dx/maxR;// -1 to 1 (left/right)
+  touchJoy.y=-dy/maxR;// -1 to 1 (back/forward, inverted)
+  jKnob.style.transform='translate('+dx+'px,'+(-touchJoy.y*maxR)+'px)';
+}
+
+// Jump button
+btnJump.addEventListener('touchstart',e=>{e.preventDefault();touchJump=true;btnJump.classList.add('active');if(!audioCtx)initAudio()},{passive:false});
+btnJump.addEventListener('touchend',e=>{touchJump=false;btnJump.classList.remove('active')});
+btnJump.addEventListener('touchcancel',e=>{touchJump=false;btnJump.classList.remove('active')});
+
+// Sprint button
+btnSprint.addEventListener('touchstart',e=>{e.preventDefault();touchSprint=true;btnSprint.classList.add('active');if(!audioCtx)initAudio()},{passive:false});
+btnSprint.addEventListener('touchend',e=>{touchSprint=false;btnSprint.classList.remove('active')});
+btnSprint.addEventListener('touchcancel',e=>{touchSprint=false;btnSprint.classList.remove('active')});
+
+// Prevent default touch on game canvas to avoid scrolling
+document.addEventListener('touchmove',e=>{if(gameState==='playing')e.preventDefault()},{passive:false});
 document.getElementById('start-btn').addEventListener('click',startGame);
 document.getElementById('retry-btn').addEventListener('click',startGame);
 window.addEventListener('resize',()=>{camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight)});
